@@ -6,41 +6,40 @@
     <title>ESP32 HUD Navigation WebApp</title>
     <style>
         body { font-family: Arial, sans-serif; background: #121212; color: #fff; padding: 20px; text-align: center; }
-        button { background: #07E0; color: #000; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; margin: 10px; }
-        .disconnect { background: #F800; color: #fff; }
-        .status { margin: 15px 0; font-size: 14px; color: #8410; }
-        input { padding: 10px; width: 80%; font-size: 16px; border-radius: 5px; border: 1px solid #444; background: #222; color: #fff; margin: 10px 0; }
+        /* Tăng cường độ tương phản cho nút bấm để không bị chìm nền */
+        .btn-connect { background: #FFD700; color: #000; border: none; padding: 14px 28px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; margin: 10px; width: 90%; max-width: 300px; }
+        .btn-nav { background: #00FFFF; color: #000; border: none; padding: 14px 28px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; margin: 10px; width: 90%; max-width: 300px; }
+        .disconnect { background: #FF3333; color: #fff; }
+        .status { margin: 15px 0; font-size: 14px; color: #aaa; }
+        input { padding: 12px; width: 90%; max-width: 300px; font-size: 16px; border-radius: 5px; border: 1px solid #555; background: #222; color: #fff; margin: 10px 0; text-align: center; }
+        .box { background: #1e1e1e; padding: 20px; border-radius: 10px; margin-top: 15px; border: 1px solid #333; }
     </style>
 </head>
 <body>
     <h2>ESP32-S3 HUD Controller</h2>
     
-    <!-- Nút kết nối Bluetooth -->
-    <div>
-        <button id="connectBtn" onclick="connectBLE()">Kết nối HUD (BLE)</button>
-        <button id="disconnectBtn" class="disconnect" onclick="disconnectBLE()" style="display:none;">Ngắt kết nối</button>
+    <div class="box">
+        <!-- Nút kết nối Bluetooth -->
+        <button id="connectBtn" class="btn-connect" onclick="connectBLE()">Kết nối HUD (BLE)</button>
+        <button id="disconnectBtn" class="btn-connect disconnect" onclick="disconnectBLE()" style="display:none;">Ngắt kết nối</button>
+        <div id="bleStatus" class="status">Trạng thái: Chưa kết nối Bluetooth</div>
     </div>
-    <div id="bleStatus" class="status">Trạng thái: Chưa kết nối Bluetooth</div>
 
-    <hr style="border-color: #333; margin: 20px 0;">
-
-    <!-- Nhập tọa độ hoặc điểm đến -->
-    <div>
-        <h3>Điểm đến (Tọa độ Kinh độ, Vĩ độ)</h3>
-        <p style="font-size: 12px; color: #aaa;">Ví dụ: 10.7769, 106.7009 (Khu vực trung tâm TP.HCM)</p>
-        <input type="text" id="destCoord" placeholder="Nhập: Lon, Lat (vd: 106.7009, 10.7769)">
+    <div class="box">
+        <h3>Điểm đến (Kinh độ, Vĩ độ)</h3>
+        <p style="font-size: 12px; color: #888;">Ví dụ: 106.7009, 10.7769</p>
+        <input type="text" id="destCoord" placeholder="106.7009, 10.7769">
         <br>
-        <button onclick="startNavigation()">Bắt đầu dẫn đường</button>
+        <button class="btn-nav" onclick="startNavigation()">Bắt đầu dẫn đường</button>
     </div>
 
-    <div id="navStatus" class="status" style="color: #07FF; font-size: 16px; margin-top: 20px;"></div>
+    <div id="navStatus" class="status" style="color: #00FFFF; font-size: 16px; margin-top: 20px; font-weight: bold;"></div>
 
     <script>
         let bluetoothDevice;
         let pCharacteristic;
         let watchId = null;
         
-        // UUID khớp hoàn toàn với code trên ESP32-S3 của bạn
         const SERVICE_UUID = "12345678-1234-5678-1234-567812345678";
         const CHARACTERISTIC_UUID = "87654321-4321-6543-2143-654321654321";
 
@@ -59,7 +58,7 @@
 
                 document.getElementById('connectBtn').style.display = 'none';
                 document.getElementById('disconnectBtn').style.display = 'inline-block';
-                document.getElementById('bleStatus').innerText = "Trạng thái: Đã kết nối thành công với HUD!";
+                document.getElementById('bleStatus').innerText = "Trạng thái: Đã kết nối thành công!";
             } catch (error) {
                 console.error(error);
                 document.getElementById('bleStatus').innerText = "Lỗi kết nối: " + error;
@@ -82,7 +81,6 @@
                 const jsonString = JSON.stringify(jsonObj);
                 const encoder = new TextEncoder();
                 await pCharacteristic.writeValue(encoder.encode(jsonString));
-                console.log("Đã gửi:", jsonString);
             } catch (error) {
                 console.error("Lỗi gửi dữ liệu BLE:", error);
             }
@@ -95,23 +93,20 @@
                 return;
             }
 
-            const [destLon, destLat] = destInput.split(',').map(v => parseFloat(v.trim()));
+            const cleanInput = destInput.replace(/[^0-9.,-]/g, '');
+            const [destLon, destLat] = cleanInput.split(',').map(v => parseFloat(v.trim()));
+            
             if (isNaN(destLon) || isNaN(destLat)) {
-                alert("Sai định dạng tọa độ! Nhập dạng: Lon, Lat");
+                alert("Sai định dạng tọa độ! Nhập dạng: 106.7009, 10.7769");
                 return;
             }
 
             document.getElementById('navStatus').innerText = "Đang bật GPS và tìm đường...";
 
-            // Theo dõi vị trí GPS thực tế trên điện thoại
             if ("geolocation" in navigator) {
                 watchId = navigator.geolocation.watchPosition(
                     (position) => {
-                        const userLat = position.coords.latitude;
-                        const userLon = position.coords.longitude;
-                        
-                        // Gọi OSRM API công cộng để lấy bước rẽ điều hướng
-                        fetchRoute(userLon, userLat, destLon, destLat);
+                        fetchRoute(position.coords.longitude, position.coords.latitude, destLon, destLat);
                     },
                     (error) => {
                         alert("Lỗi GPS: " + error.message);
@@ -132,9 +127,9 @@
 
                 if (data.routes && data.routes.length > 0) {
                     const step = data.routes[0].legs[0].steps[0]; 
-                    const distance = step.distance; // mét
+                    const distance = step.distance; 
                     const streetName = step.name || "Đường tiếp theo";
-                    const totalDist = data.routes[0].distance / 1000; // km
+                    const totalDist = data.routes[0].distance / 1000; 
                     
                     let iconDir = "straight";
                     const modifier = step.maneuver.modifier || "";
@@ -152,12 +147,11 @@
                         prog: progVal
                     };
 
-                    document.getElementById('navStatus').innerHTML = `Đang hướng tới: <b>${streetName}</b> (${distStr})`;
-                    
+                    document.getElementById('navStatus').innerHTML = `Đang tới: <b>${streetName}</b> (${distStr})`;
                     sendDataToHUD(hudData);
                 }
             } catch (err) {
-                console.error("Lỗi lấy dữ liệu định tuyến:", err);
+                console.error("Lỗi định tuyến:", err);
             }
         }
     </script>
