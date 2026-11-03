@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 HUD Navigation WebApp</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #121212; color: #fff; padding: 20px; text-align: center; }
+        button { background: #07E0; color: #000; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; margin: 10px; }
+        .disconnect { background: #F800; color: #fff; }
+        .status { margin: 15px 0; font-size: 14px; color: #8410; }
+        input { padding: 10px; width: 80%; font-size: 16px; border-radius: 5px; border: 1px solid #444; background: #222; color: #fff; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h2>ESP32-S3 HUD Controller</h2>
+    
+    <!-- Nút kết nối Bluetooth -->
+    <div>
+        <button id="connectBtn" onclick="connectBLE()">Kết nối HUD (BLE)</button>
+        <button id="disconnectBtn" class="disconnect" onclick="disconnectBLE()" style="display:none;">Ngắt kết nối</button>
+    </div>
+    <div id="bleStatus" class="status">Trạng thái: Chưa kết nối Bluetooth</div>
+
+    <hr style="border-color: #333; margin: 20px 0;">
+
+    <!-- Nhập tọa độ hoặc điểm đến -->
+    <div>
+        <h3>Điểm đến (Tọa độ Kinh độ, Vĩ độ)</h3>
+        <p style="font-size: 12px; color: #aaa;">Ví dụ: 10.7769, 106.7009 (Khu vực trung tâm TP.HCM)</p>
+        <input type="text" id="destCoord" placeholder="Nhập: Lon, Lat (vd: 106.7009, 10.7769)">
+        <br>
+        <button onclick="startNavigation()">Bắt đầu dẫn đường</button>
+    </div>
+
+    <div id="navStatus" class="status" style="color: #07FF; font-size: 16px; margin-top: 20px;"></div>
+
+    <script>
+        let bluetoothDevice;
+        let pCharacteristic;
+        let watchId = null;
+        
+        // UUID khớp hoàn toàn với code trên ESP32-S3 của bạn
+        const SERVICE_UUID = "12345678-1234-5678-1234-567812345678";
+        const CHARACTERISTIC_UUID = "87654321-4321-6543-2143-654321654321";
+
+        async function connectBLE() {
+            try {
+                document.getElementById('bleStatus').innerText = "Trạng thái: Đang tìm thiết bị ESP32...";
+                
+                bluetoothDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: "ESP32_HUD_CENTER" }],
+                    optionalServices: [SERVICE_UUID]
+                });
+
+                const server = await bluetoothDevice.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                pCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+                document.getElementById('connectBtn').style.display = 'none';
+                document.getElementById('disconnectBtn').style.display = 'inline-block';
+                document.getElementById('bleStatus').innerText = "Trạng thái: Đã kết nối thành công với HUD!";
+            } catch (error) {
+                console.error(error);
+                document.getElementById('bleStatus').innerText = "Lỗi kết nối: " + error;
+            }
+        }
+
+        async function disconnectBLE() {
+            if (bluetoothDevice && bluetoothDevice.gatt.connected) {
+                await bluetoothDevice.gatt.disconnect();
+            }
+            document.getElementById('connectBtn').style.display = 'inline-block';
+            document.getElementById('disconnectBtn').style.display = 'none';
+            document.getElementById('bleStatus').innerText = "Trạng thái: Đã ngắt kết nối";
+            if (watchId) navigator.geolocation.clearWatch(watchId);
+        }
+
+        async function sendDataToHUD(jsonObj) {
+            if (!pCharacteristic) return;
+            try {
+                const jsonString = JSON.stringify(jsonObj);
+                const encoder = new TextEncoder();
+                await pCharacteristic.writeValue(encoder.encode(jsonString));
+                console.log("Đã gửi:", jsonString);
+            } catch (error) {
+                console.error("Lỗi gửi dữ liệu BLE:", error);
+            }
+        }
+
+        function startNavigation() {
+            const destInput = document.getElementById('destCoord').value;
+            if (!destInput) {
+                alert("Vui lòng nhập tọa độ điểm đến!");
+                return;
+            }
+
+            const [destLon, destLat] = destInput.split(',').map(v => parseFloat(v.trim()));
+            if (isNaN(destLon) || isNaN(destLat)) {
+                alert("Sai định dạng tọa độ! Nhập dạng: Lon, Lat");
+                return;
+            }
+
+            document.getElementById('navStatus').innerText = "Đang bật GPS và tìm đường...";
+
+            // Theo dõi vị trí GPS thực tế trên điện thoại
+            if ("geolocation" in navigator) {
+                watchId = navigator.geolocation.watchPosition(
+                    (position) => {
+                        const userLat = position.coords.latitude;
+                        const userLon = position.coords.longitude;
+                        
+                        // Gọi OSRM API công cộng để lấy bước rẽ điều hướng
+                        fetchRoute(userLon, userLat, destLon, destLat);
+                    },
+                    (error) => {
+                        alert("Lỗi GPS: " + error.message);
+                    },
+                    { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+                );
+            } else {
+                alert("Trình duyệt không hỗ trợ Geolocation!");
+            }
+        }
+
+        async function fetchRoute(startLon, startLat, endLon, endLat) {
+            const url = `https://router.project-osrm.org/route/v1/driving/${startLon},${startLat};${endLon},${endLat}?steps=true&overview=false`;
+            
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.routes && data.routes.length > 0) {
+                    const step = data.routes[0].legs[0].steps[0]; 
+                    const distance = step.distance; // mét
+                    const streetName = step.name || "Đường tiếp theo";
+                    const totalDist = data.routes[0].distance / 1000; // km
+                    
+                    let iconDir = "straight";
+                    const modifier = step.maneuver.modifier || "";
+                    if (modifier.includes("right")) iconDir = "right";
+                    else if (modifier.includes("left")) iconDir = "left";
+
+                    let distStr = distance > 1000 ? (distance/1000).toFixed(1) + " km" : Math.round(distance) + " m";
+                    let progVal = Math.max(0, Math.min(1, 1 - (distance / data.routes[0].distance)));
+
+                    const hudData = {
+                        icon: iconDir,
+                        dist: distStr,
+                        next: streetName,
+                        eta: totalDist.toFixed(1) + " km",
+                        prog: progVal
+                    };
+
+                    document.getElementById('navStatus').innerHTML = `Đang hướng tới: <b>${streetName}</b> (${distStr})`;
+                    
+                    sendDataToHUD(hudData);
+                }
+            } catch (err) {
+                console.error("Lỗi lấy dữ liệu định tuyến:", err);
+            }
+        }
+    </script>
+</body>
+</html>
