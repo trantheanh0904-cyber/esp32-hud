@@ -94,24 +94,33 @@
             }
 
             const cleanInput = destInput.replace(/[^0-9.,-]/g, '');
-            const [destLon, destLat] = cleanInput.split(',').map(v => parseFloat(v.trim()));
+            const parts = cleanInput.split(',').map(v => parseFloat(v.trim()));
             
-            if (isNaN(destLon) || isNaN(destLat)) {
-                alert("Sai định dạng tọa độ! Nhập dạng: 106.7009, 10.7769");
+            if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) {
+                alert("Sai định dạng tọa độ! Nhập dạng: Kinh độ, Vĩ độ (vd: 106.7009, 10.7769)");
                 return;
             }
+            
+            // Lưu ý: OSRM yêu cầu truyền [Lon, Lat]
+            const destLon = parts[0];
+            const destLat = parts[1];
 
-            document.getElementById('navStatus').innerText = "Đang bật GPS và tìm đường...";
+            document.getElementById('navStatus').innerText = "Đang lấy tọa độ GPS thực tế...";
 
             if ("geolocation" in navigator) {
-                watchId = navigator.geolocation.watchPosition(
+                // Sử dụng getCurrentPosition để lấy tọa độ ngay lập tức thay vì treo ở watchPosition
+                navigator.geolocation.getCurrentPosition(
                     (position) => {
-                        fetchRoute(position.coords.longitude, position.coords.latitude, destLon, destLat);
+                        const userLat = position.coords.latitude;
+                        const userLon = position.coords.longitude;
+                        document.getElementById('navStatus').innerText = "Đã có GPS, đang tính toán tuyến đường...";
+                        fetchRoute(userLon, userLat, destLon, destLat);
                     },
                     (error) => {
-                        alert("Lỗi GPS: " + error.message);
+                        alert("Không thể lấy GPS: " + error.message + ". Hãy kiểm tra lại quyền định vị của Bluefy.");
+                        document.getElementById('navStatus').innerText = "Lỗi lấy GPS!";
                     },
-                    { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
                 );
             } else {
                 alert("Trình duyệt không hỗ trợ Geolocation!");
