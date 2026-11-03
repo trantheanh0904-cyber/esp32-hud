@@ -135,13 +135,19 @@
                 const data = await response.json();
 
                 if (data.routes && data.routes.length > 0) {
-                    const step = data.routes[0].legs[0].steps[0]; 
-                    const distance = step.distance; 
-                    const streetName = step.name || "Đường tiếp theo";
-                    const totalDist = data.routes[0].distance / 1000; 
+                    const leg = data.routes[0].legs[0];
+                    if (!leg.steps || leg.steps.length === 0) {
+                        alert("Không tìm thấy bước rẽ chi tiết từ OSRM!");
+                        return;
+                    }
+
+                    const step = leg.steps[0]; 
+                    const distance = step.distance || 0; 
+                    const streetName = step.name ? step.name : "Duong tiep theo";
+                    const totalDist = (data.routes[0].distance / 1000).toFixed(1); 
                     
                     let iconDir = "straight";
-                    const modifier = step.maneuver.modifier || "";
+                    const modifier = step.maneuver && step.maneuver.modifier ? step.maneuver.modifier : "";
                     if (modifier.includes("right")) iconDir = "right";
                     else if (modifier.includes("left")) iconDir = "left";
 
@@ -152,15 +158,18 @@
                         icon: iconDir,
                         dist: distStr,
                         next: streetName,
-                        eta: totalDist.toFixed(1) + " km",
+                        eta: totalDist + " km",
                         prog: progVal
                     };
 
                     document.getElementById('navStatus').innerHTML = `Đang tới: <b>${streetName}</b> (${distStr})`;
                     sendDataToHUD(hudData);
+                } else {
+                    alert("Không tìm thấy tuyến đường phù hợp!");
                 }
             } catch (err) {
                 console.error("Lỗi định tuyến:", err);
+                document.getElementById('navStatus').innerText = "Lỗi gọi API OSRM!";
             }
         }
     </script>
